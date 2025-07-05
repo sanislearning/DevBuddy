@@ -1,3 +1,5 @@
+#This works, current best option, now I just need to handle token utilisation a bit
+
 import asyncio
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
@@ -14,7 +16,12 @@ async def main():
     markdown_generator = DefaultMarkdownGenerator(
         content_filter=LLMContentFilter(
             llm_config=LLMConfig(provider="gemini/gemini-2.0-flash", api_token=os.getenv("GEMINI_API_KEY")),
-            instruction="Extract only the main body text, code, tutorials, guides, and technical documentation. Remove navigation, headers, footers, sidebars and advertisements. Format the extracted content as clean markdown.",
+            instruction="""
+                        Extract the main content of the page: tutorials, explanations, guides, documentation, and relevant code examples. Ignore repetitive headers, footers, ads, and navigation menus. 
+                        Do not exclude sections unless they are clearly irrelevant.
+                        Format as clean Markdown.
+                        """
+                        ,
             verbose=True
         )
     )
@@ -35,13 +42,19 @@ async def main():
         print(f"Crawled {len(results)} pages in total")
 
         # Access individual results
-        for result in results:
-            print(f"URL: {result.url} | Depth: {result.metadata.get('depth', 0)}")
-            # Now, check fit_markdown again as the filter is active
-            if not result.markdown.fit_markdown.strip():
-                print("⚠️ No content found or content was filtered out by LLM.")
-            else:
-                print(result.markdown.fit_markdown[:500])  # Limit for readability
+        with open("langchain_docs.md", "w", encoding="utf-8") as f:
+            for result in results:
+                url = result.url
+                depth = result.metadata.get("depth", 0)
+                markdown_content = result.markdown.fit_markdown.strip()
+
+                if markdown_content:
+                    f.write(f"# URL: {url}\n")
+                    f.write(f"**Depth**: {depth}\n\n")
+                    f.write(markdown_content)
+                    f.write("\n\n---\n\n")
+                else:
+                    print(f"⚠️ No content found or content was filtered out by LLM: {url}")
 
 
 if __name__ == "__main__":
