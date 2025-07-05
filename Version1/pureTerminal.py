@@ -1,8 +1,7 @@
-# devbuddy_app.py
-
 import os
+import asyncio
+import sys
 import traceback
-import streamlit as st
 from dotenv import load_dotenv
 
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
@@ -22,14 +21,11 @@ from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
-import asyncio
-import sys
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
-# Step 1: Crawl documentation from user-given URL
 async def crawl_docs(user_url):
     markdown_generator = DefaultMarkdownGenerator(
         content_filter=LLMContentFilter(
@@ -45,14 +41,13 @@ async def crawl_docs(user_url):
 
     config = CrawlerRunConfig(
         markdown_generator=markdown_generator,
-        deep_crawl_strategy=BFSDeepCrawlStrategy(max_pages=25, max_depth=2),
+        deep_crawl_strategy=BFSDeepCrawlStrategy(max_pages=5, max_depth=2),
         cache_mode="bypass"
     )
 
     async with AsyncWebCrawler() as crawler:
         results = await crawler.arun(user_url, config=config)
 
-        # Combine markdown from all pages
         combined_markdown = ""
         for result in results:
             content = result.markdown.fit_markdown.strip()
@@ -64,9 +59,7 @@ async def crawl_docs(user_url):
         return combined_markdown
 
 
-# Step 2: Split, embed and store markdown
 def process_markdown(md_text):
-    # Save markdown to a temporary file
     with open("temp_docs.md", "w", encoding="utf-8") as f:
         f.write(md_text)
 
@@ -81,11 +74,9 @@ def process_markdown(md_text):
         model_kwargs={'device': 'cpu'}
     )
     vectordb = FAISS.from_documents(chunks, embedding)
-
     return vectordb
 
 
-# Step 3: Create the RAG chain
 def create_rag_chain(vectordb):
     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7)
     retriever = vectordb.as_retriever(search_type='similarity', k=10)
@@ -99,7 +90,6 @@ def create_rag_chain(vectordb):
         "Context:\n{context}"
     )
 
-
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         ("human", "{input}")
@@ -109,46 +99,48 @@ def create_rag_chain(vectordb):
     return create_retrieval_chain(retriever, qa_chain)
 
 
-# Step 4: Streamlit UI
-st.set_page_config(page_title="DevBuddy", layout="centered")
-st.title("🤖 DevBuddy – Your AI Dev Documentation Assistant")
+# === Main CLI Runner ===
 
-if "chat_memory" not in st.session_state:
-    st.session_state.chat_memory = []
+def main():
+    url = input("🔗 Enter the documentation URL to crawl: ").strip()
 
-# Input URL
-user_url = st.text_input("🔗 Enter the documentation URL to crawl:")
+    if not url:
+        print("❌ No URL provided. Exiting.")
+        return
 
-if st.button("Start Crawling") and user_url:
-    with st.spinner("🕸️ Crawling and extracting content..."):
+    print("🕸️ Crawling and extracting content...")
+    try:
+        md_text = asyncio.run(crawl_docs(url))
+        vectordb = process_markdown(md_text)
+        rag_chain = create_rag_chain(vectordb)
+    except Exception as e:
+        print("❌ Error during crawl or processing.")
+        traceback.print_exc()
+        return
+
+    print("✅ DevBuddy is ready! Type your questions below (type `exit` to quit):\n")
+
+    chat_history = []
+
+    while True:
+        question = input("🧠 You: ")
+        if question.lower().strip() == "exit":
+            print("👋 Goodbye!")
+            break
+
+        chat_history.append({"role": "user", "content": question})
+        history = "\n".join(f"{msg['role'].capitalize()}: {msg['content']}" for msg in chat_history)
+
         try:
-            md_text = asyncio.run(crawl_docs(user_url))
-            vectordb = process_markdown(md_text)
-            rag_chain = create_rag_chain(vectordb)
-
-            st.session_state.vectordb = vectordb
-            st.session_state.rag_chain = rag_chain
-
-            st.success("✅ Ready! Ask your questions below.")
+            response = rag_chain.invoke({"input": history})
+            answer = response["answer"]
         except Exception as e:
-            st.error("❌ Error while crawling or processing.")
+            answer = "⚠️ Something went wrong while generating the answer."
             traceback.print_exc()
 
-# Chat input and response
-if "rag_chain" in st.session_state:
-    user_question = st.chat_input("Ask a question about the documentation...")
+        chat_history.append({"role": "assistant", "content": answer})
+        print(f"🤖 DevBuddy: {answer}\n")
 
-    if user_question:
-        st.session_state.chat_memory.append({"role": "user", "content": user_question})
-        history = "\n".join(
-            f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.chat_memory
-        )
 
-        with st.spinner("🤖 Thinking..."):
-            response = st.session_state.rag_chain.invoke({"input": history})
-            answer = response["answer"]
-
-            st.session_state.chat_memory.append({"role": "assistant", "content": answer})
-
-            st.chat_message("user").markdown(user_question)
-            st.chat_message("assistant").markdown(answer)
+if __name__ == "__main__":
+    main()
