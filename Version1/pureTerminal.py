@@ -120,7 +120,7 @@ def main():
 
     print("✅ DevBuddy is ready! Type your questions below (type `exit` to quit):\n")
 
-    chat_history = []
+    chat_history = [] #This one variable stores all of conversation
 
     while True:
         question = input("🧠 You: ")
@@ -138,8 +138,8 @@ def main():
             answer = "⚠️ Something went wrong while generating the answer."
             traceback.print_exc()
 
-        chat_history.append({"role": "assistant", "content": answer})
-        print(f"🤖 DevBuddy: {answer}\n")
+        chat_history.append({"role": "assistant", "content": answer}) #Appends the chat history
+        print(f"🤖 DevBuddy: {answer}\n") #prints out the answer
 
 
 if __name__ == "__main__":
