@@ -114,5 +114,3 @@ Contributions are welcome!
 Feel free to open issues, submit PRs, or suggest new features.
 
 Built with ❤️ by [Sanjay Biju](https://github.com/sanislearning)
-
-````
